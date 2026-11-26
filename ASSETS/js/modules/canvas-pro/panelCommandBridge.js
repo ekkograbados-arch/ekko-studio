@@ -1,8 +1,9 @@
 import { isProductElement, isValidFusionReceptor, isClosedClientVector, canConvertToCalado, findFusionVector, findFusionRaster } from "./fusionCore.js";
 import { canConvertSelectionToCalado, convertSelectionToSolid } from "./calado.js";
-import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { semanticKind, getStackingUnit, VECTOR_KIND } from "./vectorSemantics.js";
+import { stampSourceProvenance } from "./holeSemantics.js";
 import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
-import { getPublicOwner, getOwnerLocalGeometry, isMockupOrMask } from "./designGeometry.js";
+import { getPublicOwner, getOwnerLocalGeometry, cloneOwnerLocalGeometry, isMockupOrMask } from "./designGeometry.js";
 import { installOwnerGeometry, recalculateDynamicSubtractions, normalizeSubtractiveOperand } from "./geometricUngroup.js";
 import { isToolEnabled, legacyNamesFor, legacyNamesForTab } from "./capabilities.js";
 import { aplicarContorno } from "./contorno.js";
@@ -826,28 +827,12 @@ function performBooleanOperation(operation) {
     // como huecos reales, no como opacidad cero.
     try { result.fillRule = "evenodd"; } catch (_) {}
 
-    /* El KEEPER es el operando mas bajo de la pila (ordered[0]). Si ese
-       operando era un hueco (calado), recien AHORA se materializa: la
-       operacion ya dejo material, asi que el relleno restaurado es parte del
-       resultado y no un artefacto de un intento fallido. Es el mismo gesto
-       que el boton Rellenar, dentro de la transaccion. */
-    let baseFinal = base;
-    try {
-        if (semanticKind(baseFinal) === VECTOR_KIND.HOLE) {
-            const materializado = convertSelectionToSolid(baseFinal);
-            if (materializado) baseFinal = materializado;
-            // Ultimo recurso defensivo: si la materializacion no alcanzo a
-            // quitar el rol de hueco, el keeper quedaria invisible con la
-            // geometria de la union. Se pinta con el color original guardado.
-            if (semanticKind(baseFinal) === VECTOR_KIND.HOLE) {
-                baseFinal.data = { ...(baseFinal.data || {}),
-                    isHole: false, isSolidShape: true, isCalado: false,
-                    filledFromHole: true, semanticKind: VECTOR_KIND.SOLID, label: "Relleno" };
-                baseFinal.fillColor = baseFinal.data?.originalFillColor?.clone?.() || "#111827";
-                baseFinal.visible = true;
-            }
-        }
-    } catch (_) {}
+    /* El KEEPER es el operando mas bajo de la pila (ordered[0]). Si era un
+       hueco, NO se promueve todavía: primero debe existir un keeper con la
+       geometría booleana aceptada. Así un fallo de instalación no deja la base
+       rellenada ni consumida. */
+    const baseFinal = base;
+    const baseWasHole = semanticKind(baseFinal) === VECTOR_KIND.HOLE;
 
     // Capture the new geometry in owner-local space before installing it.
     // installOwnerGeometry can promote a Path to a CompoundPath; afterwards
@@ -901,6 +886,7 @@ function performBooleanOperation(operation) {
     }
 
     if (!keeper) {
+        try { result.remove(); } catch (_) {}
         window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: "no-keeper" });
         return rejectBoolean("no-keeper");
     }
@@ -943,6 +929,33 @@ function performBooleanOperation(operation) {
             }
         }
     } catch (_) {}
+
+    if (baseWasHole) {
+        // The keeper and its new geomBase already exist. Promote only this
+        // accepted result, preserving the boolean geometry instead of restoring
+        // the pre-operation hole base.
+        try {
+            const materializado = convertSelectionToSolid(keeper, {
+                skipHistory: true,
+                preserveGeometry: true
+            });
+            if (materializado) keeper = materializado;
+        } catch (_) {}
+        if (semanticKind(keeper) === VECTOR_KIND.HOLE) {
+            keeper.data = { ...(keeper.data || {}),
+                isHole: false, isSolidShape: true, isCalado: false,
+                filledFromHole: true, semanticKind: VECTOR_KIND.SOLID,
+                contourRole: "outer", explicitHole: false, label: "Relleno" };
+            keeper.fillColor = keeper.data?.originalFillColor?.clone?.() || "#111827";
+            keeper.visible = true;
+        }
+        // saveHistory inside fusion-edit marks that reference session dirty;
+        // calling it once here avoids one checkpoint per converted operand.
+        if (!ownsHistory && (window.fusionEditActive || window._fusionEditState ||
+            window._ekkoHistoryTransaction?.label === "fusion-edit")) {
+            window.saveHistory?.();
+        }
+    }
 
     // Marca de resultado booleano: habilita "Descomponer Vector" sobre la
     // pieza nueva (queja del dueño: una booleana no se podia volver a
@@ -1305,61 +1318,72 @@ window.EKKO_BOOLEAN_PREVIEW = Object.freeze({
    jerarquías (letras) y no toca nada de lo apilado a mano por el usuario. */
 function restackLoteDescompuesto(convertidos) {
     if (!Array.isArray(convertidos) || !convertidos.length) return;
-    const wrapperDe = (pieza) => {
-        const p = pieza?.parent;
-        return (p && p.data?.clipGroup) ? p : (pieza || null);
-    };
-    const hojaDe = (w) => (w.children || []).find(ch => !ch.clipMask &&
-        !((ch.data || {}).isSelectionBox)) || null;
+    const hojaDe = unit => getPublicOwner(unit) || unit;
     const lotes = new Map();
     convertidos.forEach(pieza => {
-        const d = pieza?.data || {};
-        if (d.decomposedLayer !== true || !d.containmentScope) return;
-        const wrapper = wrapperDe(pieza);
-        if (!wrapper || !wrapper.parent) return;
-        const clave = wrapper.parent.id + '|' + d.containmentScope;
-        if (!lotes.has(clave)) lotes.set(clave, { contenedor: wrapper.parent, alcance: d.containmentScope });
+        const unit = getStackingUnit(pieza);
+        const d = hojaDe(unit)?.data || {};
+        if (d.decomposedLayer !== true || !d.containmentScope || !unit?.parent) return;
+        const clave = unit.parent.id + '|' + d.containmentScope;
+        if (!lotes.has(clave)) lotes.set(clave, { contenedor: unit.parent, alcance: d.containmentScope });
     });
     lotes.forEach(({ contenedor, alcance }) => {
-        const lote = (contenedor.children || []).filter(ch => {
-            const hoja = hojaDe(ch);
-            const d = hoja?.data || {};
-            return d.decomposedLayer === true && d.containmentScope === alcance;
+        const lote = [];
+        const vistos = new Set();
+        (contenedor.children || []).forEach(ch => {
+            const unit = getStackingUnit(ch);
+            const d = hojaDe(unit)?.data || {};
+            if (!unit || vistos.has(unit) || d.decomposedLayer !== true || d.containmentScope !== alcance) return;
+            vistos.add(unit);
+            lote.push(unit);
         });
         if (lote.length < 2) return;
-        const raizDe = (ch) => {
-            const d = (hojaDe(ch)?.data) || {};
-            const clave = d.ownerContainmentKey || d.containmentKey || '';
-            return clave.split(':').pop() || clave;
+        const porClave = new Map();
+        lote.forEach(unit => {
+            const clave = hojaDe(unit)?.data?.containmentKey;
+            if (clave) porClave.set(clave, unit);
+        });
+        const raizDe = unit => {
+            const d = hojaDe(unit)?.data || {};
+            if (d.sourceStackRootKey) return d.sourceStackRootKey;
+            let clave = d.containmentKey;
+            const visitadas = new Set();
+            while (clave && porClave.has(clave) && !visitadas.has(clave)) {
+                visitadas.add(clave);
+                const superior = hojaDe(porClave.get(clave))?.data?.ownerContainmentKey;
+                if (!superior || superior === clave || !porClave.has(superior)) break;
+                clave = superior;
+            }
+            return clave || d.ownerContainmentKey || String(unit.id);
         };
-        const nivelDe = (ch) => {
-            const d = (hojaDe(ch)?.data) || {};
+        const nivelDe = unit => {
+            const d = hojaDe(unit)?.data || {};
             return typeof d.layerDepth === 'number' ? d.layerDepth :
                 (typeof d.contourDepth === 'number' ? d.contourDepth : 0);
         };
-        const ordenFuente = (ch) => {
-            const d = (hojaDe(ch)?.data) || {};
-            return typeof d.docOrder === 'number' ? d.docOrder : 0;
+        const ordenFuente = unit => {
+            const d = hojaDe(unit)?.data || {};
+            return typeof d.sourceDocumentOrder === 'number' ? d.sourceDocumentOrder :
+                (typeof d.docOrder === 'number' ? d.docOrder : 0);
         };
-        // Orden ENTRE raices (letras): su primera aparicion en el orden actual,
-        // asi nunca se reordena una letra respecto de otra.
         const rangoRaiz = new Map();
-        lote.forEach(ch => {
-            const raiz = raizDe(ch);
+        lote.forEach(unit => {
+            const raiz = raizDe(unit);
             if (!rangoRaiz.has(raiz)) rangoRaiz.set(raiz, rangoRaiz.size);
         });
         const ordenDeseado = [...lote].sort((a, b) =>
             (rangoRaiz.get(raizDe(a)) - rangoRaiz.get(raizDe(b))) ||
             (nivelDe(a) - nivelDe(b)) ||
             (ordenFuente(a) - ordenFuente(b)));
-        const yaEsta = ordenDeseado.every((ch, i) => ch === lote[i]);
+        const yaEsta = ordenDeseado.every((unit, i) => unit === lote[i]);
         if (yaEsta) return;
-        const indiceBase = Math.min(...lote.map(ch => contenedor.children.indexOf(ch)));
-        ordenDeseado.forEach(ch => { try { ch.remove(); } catch (_) {} });
-        let idx = indiceBase;
-        ordenDeseado.forEach(ch => {
-            try { contenedor.insertChild(Math.min(idx, contenedor.children.length), ch); } catch (_) {}
-            idx += 1;
+        // Reorder only the slots already occupied by this batch. Removing the
+        // batch and packing it at the first slot would shift unrelated objects
+        // in [A(batch), X(foreign), B(batch)] from index 1 to index 2.
+        const slots = lote.map(unit => contenedor.children.indexOf(unit));
+        ordenDeseado.forEach(unit => { try { unit.remove(); } catch (_) {} });
+        ordenDeseado.forEach((unit, i) => {
+            try { contenedor.insertChild(Math.min(slots[i], contenedor.children.length), unit); } catch (_) {}
         });
     });
 }
@@ -1411,13 +1435,14 @@ function materializarContornosInternos(owner, huecos) {
         const nueva = new paper.CompoundPath({ insert: false });
         huecos.forEach(hoja => {
             const clon = hoja.clone({ insert: false });
+            // These paths are now positive fill geometry, not independent
+            // semantic owners. All hole provenance belongs to the parent.
             clon.data = {};
             nueva.addChild(clon);
         });
-        // El cuerpo vive en el mismo marco que su origen: misma matrix y misma
-        // convencion applyMatrix, asi la pieza nueva cae EXACTAMENTE donde
-        // estaba el hueco.
-        nueva.applyMatrix = owner.applyMatrix !== false;
+        nueva.applyMatrix = false;
+        const geomBase = cloneOwnerLocalGeometry(nueva);
+        try { geomBase.matrix = new paper.Matrix(); } catch (_) {}
         try { nueva.matrix = owner.matrix?.clone?.() || new paper.Matrix(); } catch (_) {}
         try { nueva.fillRule = owner.fillRule || "evenodd"; } catch (_) {}
         nueva.fillColor = colorOriginal;
@@ -1427,27 +1452,55 @@ function materializarContornosInternos(owner, huecos) {
         if (!padre) return null;
         const indice = Math.max(0, padre.children.indexOf(owner));
         padre.insertChild(indice, nueva);
-        const geomBase = nueva.clone({ insert: false });
-        geomBase.applyMatrix = false;
-        try { geomBase.matrix = new paper.Matrix(); } catch (_) {}
+        const sourceHole = huecos[0]?.data || {};
+        const {
+            geomBase: _oldBase, geomBasePathData: _oldPathData, ownerId: _oldOwnerId,
+            semanticId: _oldSemanticId, fusionId: _oldFusionId, containmentKey: _oldContainmentKey,
+            ...metadata
+        } = { ...(owner.data || {}), ...sourceHole };
         nueva.data = {
-            source: owner.data?.source || null,
-            userImported: owner.data?.userImported === true ? true : undefined,
+            ...metadata,
+            ownerId: nueva.id,
+            semanticId: null,
+            fusionId: null,
+            containmentScope: owner.data?.containmentScope ?? sourceHole.containmentScope ?? null,
+            containmentKey: `${owner.data?.containmentScope || owner.data?.containmentKey || owner.id}:fill:${nueva.id}`,
+            ownerContainmentKey: owner.data?.ownerContainmentKey ?? sourceHole.ownerContainmentKey ?? null,
             label: "Relleno",
             semanticKind: VECTOR_KIND.SOLID,
             isHole: false,
             isSolidShape: true,
             isCalado: false,
             contourRole: "outer",
-            originalIsHole: false,
             explicitHole: false,
             filledFromHole: true,
             isFusionReceptor: true,
             originalFillColor: colorOriginal,
             originalStrokeColor: null,
             originalStrokeWidth: 0,
-            geomBase
+            sourceSemanticKind: VECTOR_KIND.HOLE,
+            sourceIsHole: true,
+            sourceContourRole: "hole",
+            sourceDocumentOrder: sourceHole.sourceDocumentOrder ?? sourceHole.docOrder ?? owner.data?.sourceDocumentOrder ?? owner.data?.docOrder ?? null,
+            sourceStackRootKey: owner.data?.sourceStackRootKey || sourceHole.sourceStackRootKey || owner.data?.containmentKey || null,
+            sourceStackOrder: owner.data?.sourceStackOrder ?? sourceHole.sourceStackOrder ?? sourceHole.docOrder ?? owner.data?.docOrder ?? null,
+            sourceContainmentScope: owner.data?.sourceContainmentScope ?? sourceHole.sourceContainmentScope ?? owner.data?.containmentScope ?? null,
+            sourceContainmentKey: sourceHole.sourceContainmentKey ?? sourceHole.containmentKey ?? owner.data?.sourceContainmentKey ?? owner.data?.containmentKey ?? null,
+            sourceLayerDepth: sourceHole.sourceLayerDepth ?? sourceHole.contourDepth ?? owner.data?.sourceLayerDepth ?? owner.data?.layerDepth ?? 0,
+            geomBase,
+            geomBasePathData: geomBase?.pathData || null
         };
+        stampSourceProvenance(nueva, {
+            sourceSemanticKind: VECTOR_KIND.HOLE,
+            sourceIsHole: true,
+            sourceContourRole: "hole",
+            sourceDocumentOrder: sourceHole.sourceDocumentOrder ?? sourceHole.docOrder ?? owner.data?.sourceDocumentOrder ?? owner.data?.docOrder,
+            sourceStackRootKey: owner.data?.sourceStackRootKey || sourceHole.sourceStackRootKey || owner.data?.containmentKey || null,
+            sourceStackOrder: owner.data?.sourceStackOrder ?? sourceHole.sourceStackOrder ?? sourceHole.docOrder ?? owner.data?.docOrder,
+            sourceContainmentScope: owner.data?.sourceContainmentScope ?? sourceHole.sourceContainmentScope ?? owner.data?.containmentScope,
+            sourceContainmentKey: sourceHole.sourceContainmentKey ?? sourceHole.containmentKey ?? owner.data?.sourceContainmentKey ?? owner.data?.containmentKey,
+            sourceLayerDepth: sourceHole.sourceLayerDepth ?? sourceHole.contourDepth ?? owner.data?.sourceLayerDepth ?? owner.data?.layerDepth
+        });
         return nueva;
     } catch (_) { return null; }
 }
@@ -1470,48 +1523,88 @@ export function invertSelectionRoles() {
     });
     if (!owners.length) return null;
 
-    window.beginHistoryTransaction?.("solid-hole-toggle");
+    const ownsHistory = !window._ekkoHistoryTransaction?.active;
+    const fusionEditHistory = !ownsHistory && !!(window.fusionEditActive || window._fusionEditState ||
+        window._ekkoHistoryTransaction?.label === "fusion-edit");
+    if (ownsHistory) window.beginHistoryTransaction?.("solid-hole-toggle");
     const converted = [];
+    const convertedSet = new Set();
+    const recordConverted = item => {
+        if (!item || convertedSet.has(item)) return;
+        convertedSet.add(item);
+        converted.push(item);
+    };
+    let partialFailure = null;
     try {
         owners.forEach(owner => {
             let kind = null;
+            let pendingFill = null;
             try { kind = semanticKind(owner); } catch (_) {}
-            if (kind === VECTOR_KIND.HOLE) {
-                const solid = convertSelectionToSolid(owner);
-                if (solid) converted.push(solid);
-            } else if (canConvertSelectionToCalado(owner)) {
-                /* Inversion por contornos: la letra con huecos REALES entrega
-                   su parte interna como RELLENO nuevo (mismo color de origen)
-                   y despues el cuerpo entero pasa a hueco. Sin esto, la
-                   conversion entera dejaba el interior sin pieza y el dueño
-                   lo leia como "el hueco no se convierte". */
-                const huecosInternos = contornosHuecosInternos(owner);
-                let relleno = null;
-                if (huecosInternos) {
-                    relleno = materializarContornosInternos(owner, huecosInternos);
-                    if (relleno) converted.push(relleno);
+            try {
+                if (kind === VECTOR_KIND.HOLE) {
+                    const solid = convertSelectionToSolid(owner, { skipHistory: true });
+                    if (solid) recordConverted(solid);
+                } else if (canConvertSelectionToCalado(owner)) {
+                    /* Inversion por contornos: la letra con huecos REALES entrega
+                       su parte interna como RELLENO nuevo (mismo color de origen)
+                       y despues el cuerpo entero pasa a hueco. Sin esto, la
+                       conversion entera dejaba el interior sin pieza y el dueño
+                       lo leia como "el hueco no se convierte". */
+                    const huecosInternos = contornosHuecosInternos(owner);
+                    let relleno = null;
+                    if (huecosInternos) {
+                        relleno = materializarContornosInternos(owner, huecosInternos);
+                        pendingFill = relleno;
+                    }
+                    const hole = convertSelectionToCalado(owner, { skipHistory: true });
+                    if (hole) {
+                        if (relleno) {
+                            recordConverted(relleno);
+                            /* Orden Z: el RELLENO debe quedar ENCIMA del calado de su
+                               misma letra. Debajo, la sustraccion dinamica del hueco
+                               (que va arriba) recortaba el relleno y el dueno veia la
+                               pieza interna maltratada o desaparecida. Es el mismo
+                               orden del lote descompuesto. */
+                            try { relleno.insertAbove(hole); } catch (_) {}
+                        }
+                        recordConverted(hole);
+                    } else if (relleno) {
+                        // The body conversion did not happen: do not commit an
+                        // orphan fill produced by this partially failed owner.
+                        try { relleno.remove(); } catch (_) {}
+                    }
                 }
-                const hole = convertSelectionToCalado(owner);
-                if (hole) {
-                    converted.push(hole);
-                    /* Orden Z: el RELLENO debe quedar ENCIMA del calado de su
-                       misma letra. Debajo, la sustraccion dinamica del hueco
-                       (que va arriba) recortaba el relleno y el dueno veia la
-                       pieza interna maltratada o desaparecida. Es el mismo
-                       orden del lote descompuesto. */
-                    if (relleno) { try { relleno.insertAbove(hole); } catch (_) {} }
+            } catch (error) {
+                // A converter may mutate before a later recalculation throws.
+                // Commit that real conversion with the other successful ones;
+                // if nothing changed, the transaction is cancelled below.
+                let ownerChanged = false;
+                try {
+                    const current = getPublicOwner(owner) || owner;
+                    ownerChanged = semanticKind(current) !== kind;
+                    if (ownerChanged) {
+                        if (pendingFill) recordConverted(pendingFill);
+                        recordConverted(current);
+                    }
+                } catch (_) {}
+                if (!ownerChanged && pendingFill) {
+                    try { pendingFill.remove(); } catch (_) {}
                 }
+                if (!partialFailure) partialFailure = error;
             }
         });
     } catch (e) {
-        window.cancelHistoryTransaction?.("solid-hole-toggle-failed");
-        console.warn("[EKKO <Solidos <-> Huecos>] no se pudo invertir:", e);
-        return null;
+        partialFailure = e;
     }
     if (!converted.length) {
-        window.cancelHistoryTransaction?.("solid-hole-toggle-empty");
+        if (ownsHistory) window.cancelHistoryTransaction?.(partialFailure ? "solid-hole-toggle-failed" : "solid-hole-toggle-empty");
+        if (partialFailure) console.warn("[EKKO <Solidos <-> Huecos>] no se pudo invertir:", partialFailure);
         return null;
     }
+    if (partialFailure) {
+        console.warn("[EKKO <Solidos <-> Huecos>] inversion parcial; se conservan las conversiones completadas:", partialFailure);
+    }
+    if (fusionEditHistory) window.saveHistory?.();
     // Orden Z del dueño: las piezas convertidas vuelven a su nivel semántico
     // (masa sólida abajo, calado arriba) dentro de su jerarquía descompuesta.
     // Sin esto, el sólido nuevo del contador quedaba debajo del anillo
@@ -1524,8 +1617,7 @@ export function invertSelectionRoles() {
        estado POST encima: el primer Ctrl+Z del dueño seria un paso vacio
        (medido 2026-11-14). */
     if (typeof window.markHistoryDirty === "function") window.markHistoryDirty();
-    else window.saveHistory?.();
-    window.commitHistoryTransaction?.("solid-hole-toggle");
+    if (ownsHistory) window.commitHistoryTransaction?.("solid-hole-toggle");
     window.deselectItem?.();
     converted.forEach((owner, index) => window.selectItem?.(owner, index > 0));
     window.EKKO_DIAG?.logEvent?.("solid-hole.toggle", { count: converted.length });
