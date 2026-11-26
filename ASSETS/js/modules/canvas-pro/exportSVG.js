@@ -1473,6 +1473,10 @@ function construirMascaraSilueta(clonSil, marcoB, k, res) {
  * @returns {string|SVGElement} Código XML SVG puro listo para manufactura o elemento SVG
  */
 export async function prepareSVGForExport(options = {}) {
+    if (window.fusionEditActive) {
+        notice("Aceptá o cancelá la edición de la fusión antes de exportar", { type: "warning" });
+        return "";
+    }
     if (typeof paper === "undefined" || !paper.project) {
         console.error("[EKKO EXPORT] Error crítico: Paper.js no está inicializado.");
         return "";
