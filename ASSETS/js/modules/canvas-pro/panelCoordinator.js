@@ -57,6 +57,11 @@ function loadPanelState() {
     ["topPanel", "floatingBar", "productPanel", "activeTab"].forEach(key => {
         if (typeof saved[key] === "string") panelState[key] = saved[key];
     });
+    if (typeof saved.floatingBar !== "string") {
+        try {
+            if (localStorage.getItem("ekko.emergente.v1") === "0") panelState.floatingBar = "hidden";
+        } catch (_) {}
+    }
     // Estado guardado corrupto o de una version vieja: volver a fabrica en
     // vez de dejar la interfaz en un modo que no existe.
     if (!["expanded", "compact", "hidden"].includes(panelState.topPanel)) panelState.topPanel = "expanded";
@@ -172,11 +177,7 @@ function ensureHogarDerecho(surface) {
         toggleEmergente.addEventListener("click", alternarEmergente);
     }
 
-    /* --- estado persistido: la emergente nace VISIBLE (default ON) ----- */
-    let emergenteOff = false;
-    try { emergenteOff = localStorage.getItem("ekko.emergente.v1") === "0"; } catch (_) {}
-    document.body.classList.toggle("ekko-emergente-off", emergenteOff);
-    syncBotonEmergente(toggleEmergente, emergenteOff);
+    syncBotonEmergente(toggleEmergente, panelState.floatingBar === "hidden");
 
     /* --- orden estable dentro del hogar (izquierda → derecha) ----------
        Se re-aplica en CADA pasada con append incondicional: así el orden
@@ -199,16 +200,9 @@ function syncBotonEmergente(btn, off) {
 }
 
 function alternarEmergente() {
-    const off = document.body.classList.toggle("ekko-emergente-off");
-    try { localStorage.setItem("ekko.emergente.v1", off ? "0" : "1"); } catch (_) {}
-    syncBotonEmergente(byId("btnEmergenteToggle"), off);
-    if (off) {
-        if (typeof window.hideContextualMenu === "function") window.hideContextualMenu();
-    } else {
-        /* Re-anclar ENCIMA de la selección: la posición arrastrada quedó
-           invalidada al desactivar (R18-5: nunca sobre el centro del mockup).
-           Se re-mide con un frame de margen: display:flex vuelve a aplicar
-           primero, y offsetWidth/Height sin tamaño daban anclaje corrido. */
+    panelState.floatingBar = panelState.floatingBar === "hidden" ? "auto" : "hidden";
+    applyPanelState();
+    if (panelState.floatingBar !== "hidden") {
         window.customToolbarLeft = undefined;
         window.customToolbarTop = undefined;
         const sel = window.selectedItem || (window.selectedItems && window.selectedItems[0]);
@@ -433,9 +427,19 @@ function renderPanelState() {
         (panelState.floatingBar === "auto" && hasSelection(panelState.currentSelection));
 
     if (el.floating) {
+        const hidden = panelState.floatingBar === "hidden";
         el.floating.classList.toggle("is-visible", floatingShouldShow);
-        el.floating.classList.toggle("is-hidden", panelState.floatingBar === "hidden");
+        el.floating.classList.toggle("is-hidden", hidden);
+        el.floating.classList.toggle("hidden", hidden);
         el.floating.dataset.panelMode = panelState.floatingBar;
+        el.floating.setAttribute("aria-hidden", hidden ? "true" : "false");
+        document.body.classList.toggle("ekko-emergente-off", hidden);
+        syncBotonEmergente(byId("btnEmergenteToggle"), hidden);
+        const legacyToggle = byId("toggleContextBar");
+        if (legacyToggle) {
+            legacyToggle.setAttribute("aria-pressed", hidden ? "false" : "true");
+            legacyToggle.title = hidden ? "Mostrar atajos flotantes" : "Ocultar atajos flotantes";
+        }
     }
 
     if (el.products) {
