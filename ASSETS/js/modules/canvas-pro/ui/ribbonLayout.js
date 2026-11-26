@@ -17,8 +17,9 @@
        reservorio OCULTO: hay módulos que los leen y escriben, no se
        pueden borrar).
      - #ctxTextControls -> campos del hogar TIPOGRAFÍA (selector de fuente,
-       tamaño) y del hogar CURVAR Y ESPACIAR (curvatura, radio, espaciado,
-       soldar, girar letras).
+       tamaño) y Soldar Texto, que pasa al hogar CONVERSIÓN. Los campos de
+       Curvar/Espaciar y Girar letras esperan en #ekkoTextPanelParking hasta
+       que commandParameters.js los monta en su panel.
      - #btnCtxFlipH/#btnCtxFlipV -> hogar ORGANIZAR (Voltear H / Voltear V),
        etiquetados flipH/flipV para que el manifiesto los gobierne.
      - #pro-layout-toolbar (banda reservorio oculta) -> se ADOPTAN solo los
@@ -34,7 +35,12 @@
 import { GROUPS, BY_LEGACY } from "./toolbarManifest.js";
 
 const RESERVORIO_ID = "ekkoRibbonReservorio";
+const PARKING_TEXTO_ID = "ekkoTextPanelParking";
 const CLASE_FLECHA = "ekko-banda-flecha";
+const NODOS_PANEL_TEXTO = [
+  "ctxTextCurvature", "ctxCurveRadius", "ctxTextSpacingSlider",
+  "ctxTextSpacing", "btnCtxRotateLetters", "ekkoBendPopup"
+];
 
 /** Botones sin manifiesto que igual pertenecen a un hogar por su oficio.
  *  Quedó VACÍO: todos los botones del panel superior están bajo contrato. */
@@ -65,7 +71,7 @@ const ORDEN_HOGARES = {
                  '[data-fusion-btn="zoomReset"]'],
   imagen:       ['[data-fusion-btn="removeBg"]', '[data-fusion-btn="editCutout"]'],
   trazar:       ['[data-fusion-btn="outline"]', '[data-fusion-btn="traceImage"]',
-                 '[data-fusion-btn="textToVector"]'],
+                 '[data-fusion-btn="textToVector"]', '[data-fusion-btn="ctxWeld"]'],
   vector:       ['[data-fusion-btn="editNodes"]', '[data-fusion-btn="cutSegment"]',
                  '[data-fusion-btn="decomposeVector"]', '[data-fusion-btn="audit"]',
                  '[data-fusion-btn="ctxDeleteNode"]', '[data-fusion-btn="ctxExitNodeEdit"]'],
@@ -78,9 +84,7 @@ const ORDEN_HOGARES = {
   texto:        ['[data-fusion-btn="campoFuente"]', '[data-fusion-btn="campoTamanoFuente"]',
                  '[data-fusion-btn="ctxBold"]', '[data-fusion-btn="ctxItalic"]',
                  '[data-fusion-btn="ctxUnderline"]'],
-  curvar:       ['[data-fusion-btn="curvar"]', '[data-fusion-btn="campoCurvatura"]',
-                 '[data-fusion-btn="campoRadio"]', '[data-fusion-btn="campoEspaciado"]',
-                 '[data-fusion-btn="ctxWeld"]', '[data-fusion-btn="ctxRotateLetters"]']
+  curvar:       ['[data-fusion-btn="curvar"]', '[data-fusion-btn="espaciar"]']
 };
 
 /* Icono dos-tonos del sprite para reemplazar el <i> de FontAwesome en los
@@ -110,6 +114,8 @@ const SWAP_ICONOS = {
 };
 
 let layout = null;
+let medicionFlechas = 0;
+let observadorFlechas = null;
 
 /* ------------------------------------------------------------------ */
 /* RESERVORIO OCULTO de campos que otros módulos siguen usando         */
@@ -127,6 +133,25 @@ function asegurarReservorio() {
   const ancla = document.getElementById("contextual-toolbar") || document.body;
   ancla.appendChild(r);
   return r;
+}
+
+function asegurarParkingTexto() {
+  let p = document.getElementById(PARKING_TEXTO_ID);
+  if (p) return p;
+  p = document.createElement("div");
+  p.id = PARKING_TEXTO_ID;
+  p.className = "ekko-text-panel-parking";
+  p.setAttribute("aria-hidden", "true");
+  p.setAttribute("inert", "");
+  p.style.cssText = "position:absolute;left:-9999px;top:0;width:0;height:0;overflow:hidden;visibility:hidden;";
+  document.body.appendChild(p);
+  return p;
+}
+
+function aparcarNodoPanelTexto(node) {
+  if (!node || node.closest("#ekkoParamSurface") || node.closest("#contextual-toolbar")) return;
+  const parking = asegurarParkingTexto();
+  if (node.parentElement !== parking) parking.appendChild(node);
 }
 
 /* ------------------------------------------------------------------ */
@@ -231,6 +256,8 @@ function adoptar() {
   if (!layout) return;
   const g = key => layout.groups.get(key);
 
+  NODOS_PANEL_TEXTO.forEach(id => aparcarNodoPanelTexto(document.getElementById(id)));
+
   const mover = (node, key) => {
     if (!node || !g(key)) return;
     /* CHROME UNIFORME (queja: "hay hogares que tienen textos e iconos pero
@@ -264,7 +291,7 @@ function adoptar() {
     mover(sizeGroup, "tamano");
   }
 
-  /* --- 2. TIPOGRAFÍA y CURVAR Y ESPACIAR (desde #ctxTextControls) --- */
+  /* --- 2. TIPOGRAFÍA (desde #ctxTextControls) ------------------------ */
   const envolver = (node, legacy) => {
     if (!node) return null;
     if (node.parentElement && node.parentElement.dataset.fusionBtn === legacy) {
@@ -288,15 +315,6 @@ function adoptar() {
   if (fuenteDropdown) mover(envolver(fuenteDropdown, "campoFuente"), "texto");
   const tamFuente = document.getElementById("ctxFontSize");
   if (tamFuente) mover(envolver(tamFuente, "campoTamanoFuente"), "texto");
-  const curvatura = document.getElementById("ctxTextCurvature");
-  if (curvatura) mover(envolver(curvatura, "campoCurvatura"), "curvar");
-  const radio = document.getElementById("ctxCurveRadius");
-  if (radio) mover(envolver(radio, "campoRadio"), "curvar");
-  const sliderEsp = document.getElementById("ctxTextSpacingSlider");
-  if (sliderEsp) mover(envolver(sliderEsp, "campoEspaciado"), "curvar");
-  const numEsp = document.getElementById("ctxTextSpacing");
-  if (numEsp) mover(envolver(numEsp, "campoEspaciado"), "curvar");
-
   /* --- 3. VOLTEAR H/V (desde #ctxImageControls) y nodos ------------- */
   ["btnCtxFlipH", "btnCtxFlipV"].forEach(id => {
     const b = document.getElementById(id);
@@ -313,14 +331,11 @@ function adoptar() {
   ["btnCtxBold", "btnCtxItalic", "btnCtxUnderline", "btnCtxWeld", "btnCtxRotateLetters"].forEach(id => {
     const b = document.getElementById(id);
     if (!b) return;
-    /* R19-3: B/I/U/Weld/Rotar llevaban <i class="fas ..."> de Font Awesome
-       (si la fuente no cargaba, el botón quedaba sin glifo). Icono del
-       sprite (dos tonos) para todos, estén donde estén. */
     const swapIcono = SWAP_ICONOS[id];
     if (swapIcono) ponerIcono(b, swapIcono.icono);
+    if (id === "btnCtxRotateLetters") return;
     if (b.parentElement && b.parentElement.closest("#contextual-toolbar")) {
-      const key = (id === "btnCtxWeld" || id === "btnCtxRotateLetters") ? "curvar" : "texto";
-      mover(b, key);
+      mover(b, id === "btnCtxWeld" ? "trazar" : "texto");
     }
   });
 
@@ -558,13 +573,40 @@ function build() {
   });
 
   // Arrastrar o rodar la banda también refresca las flechas.
-  body.addEventListener("scroll", () => { try { sync(); } catch (_) {} }, { passive: true });
+  body.addEventListener("scroll", programarMedicionFlechas, { passive: true });
 
   top.appendChild(wrap);
   top.dataset.ekkoRibbon = "1";
   layout = { top, body, wrap, groups, flechas };
+  if (typeof ResizeObserver === "function") {
+    observadorFlechas = new ResizeObserver(programarMedicionFlechas);
+    observadorFlechas.observe(body);
+    observadorFlechas.observe(top);
+  }
   sync();
   return layout;
+}
+
+function medirFlechas() {
+  medicionFlechas = 0;
+  const current = build();
+  if (!current) return;
+  const body = current.body;
+  const overflow = body.scrollWidth > body.clientWidth + 2;
+  const max = body.scrollWidth - body.clientWidth;
+  const x = body.scrollLeft;
+  current.flechas.forEach(b => {
+    const lado = b.classList.contains("izq") ? "izq" : "der";
+    const activa = overflow && (lado === "izq" ? x > 4 : x < max - 4);
+    b.classList.toggle("activa", activa);
+  });
+}
+
+function programarMedicionFlechas() {
+  if (medicionFlechas) return;
+  medicionFlechas = requestAnimationFrame(() => {
+    medicionFlechas = requestAnimationFrame(medirFlechas);
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -636,16 +678,7 @@ export function sync() {
     g.el.classList.toggle("is-empty", !visible || !enTab);
   });
 
-  /* Flechas de banda: activas solo si el contenido no entra. */
-  const body = current.body;
-  const overflow = body.scrollWidth > body.clientWidth + 2;
-  const max = body.scrollWidth - body.clientWidth;
-  const x = body.scrollLeft;
-  current.flechas.forEach(b => {
-    const lado = b.classList.contains("izq") ? "izq" : "der";
-    const activa = overflow && (lado === "izq" ? x > 4 : x < max - 4);
-    b.classList.toggle("activa", activa);
-  });
+  programarMedicionFlechas();
 }
 
 export function initRibbonLayout() {
