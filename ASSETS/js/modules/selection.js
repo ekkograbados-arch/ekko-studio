@@ -823,6 +823,11 @@ const _initSelectionTool = function() {
 
       const hit = point ? findItemAtPoint(point) : null;
       if (!hit) return;
+      if ((window.selectedItems || []).filter(Boolean).length > 1) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
 
       let fusion = null;
       if (hit.data?.isSmartFusion) {
@@ -843,9 +848,6 @@ const _initSelectionTool = function() {
       const isText = target && (target.className === 'PointText' || target instanceof paper.PointText);
       const esGrupoTextoDblClick = target && (target.data?.isCurvedGroup === true || target.data?.isSpacedGroup === true);
 
-      // Fusión y texto conservan su doble clic propio (edición interna / texto).
-      // Un VECTOR normal NO entra por doble clic: los nodos se editan solo con
-      // el botón "Editar Nodos" (gate FASE 1 UI, ver la rama final).
       event.preventDefault();
       event.stopPropagation();
       window.dragging = false;
@@ -853,27 +855,37 @@ const _initSelectionTool = function() {
       window._mouseDragOccurred = false;
 
       try {
+        const selected = (window.selectedItems || []).filter(Boolean);
+        if (selected.length !== 1 || selected[0] !== target || !target.selected) {
+          window.commitSelectionContext?.([target], target, "dblclick");
+        }
         if (fusion && typeof window.enterFusionEditMode === 'function') {
-          window.deselectItem();
-          window.selectItem(fusion);
           window.enterFusionEditMode(fusion);
         } else if (isText && typeof window.startTextEditing === 'function') {
-          window.deselectItem();
-          window.selectItem(hit);
           window.startTextEditing(target);
         } else if (esGrupoTextoDblClick && typeof window.editGroupText === 'function') {
-          // Texto curvado/espaciado: sigue siendo "texto", se edita por doble
-          // clic como en cualquier editor de texto. NO se convierte a vector.
-          window.deselectItem();
-          window.selectItem(target);
           window.editGroupText(target);
+        } else if (target.className === 'Raster') {
+          if (target.data?.quitarFondoIA && typeof window.abrirEditorFondo === 'function') {
+            window.abrirEditorFondo();
+          } else {
+            window.EKKO_CONTEXTUAL_BAR?.mostrarTransienteEn?.(
+              target,
+              event.clientX,
+              event.clientY
+            );
+          }
+          window.refreshAllToolbars?.();
+        } else if (target.className === 'Group' && !target.data?.isSmartFusion) {
+          window.EKKO_CONTEXTUAL_BAR?.mostrarTransienteEn?.(
+            target,
+            event.clientX,
+            event.clientY
+          );
+        } else if (['Path', 'CompoundPath', 'Shape'].includes(target.className) &&
+                   typeof window.enterNodeEditMode === 'function') {
+          window.enterNodeEditMode(target);
         }
-        /* FASE 1 UI — GATE DE NODOS: el doble clic sobre un vector plano YA NO
-           entra al editor de nodos. Los nodos se editan EXCLUSIVAMENTE con el
-           botón "Editar Nodos" (cinta o emergente), decisión del cliente. El
-           doble clic queda reservado: fusión -> editar dentro (arriba), texto
-           -> editar texto. Dentro del modo nodos, el dblclick lo atiende
-           nodeEditor (inserta nodo en el punto). */
       } catch (e) {
         console.error('[EKKO DBLCLICK ERROR]', e);
       }
@@ -1646,8 +1658,10 @@ if (typeof window !== 'undefined' && !window._ekkoFusionDblClickBound) {
   // listener aqui competia por document-vs-window: el primero salia bien y
   // el segundo caia en el Escape generico y borraba la seleccion restaurada.
   // Clic derecho también finaliza la edición interna (según spec EKKO)
-  document.addEventListener('contextmenu', function() {
+  document.addEventListener('contextmenu', function(event) {
     if (!window.fusionEditActive) return;
+    const canvas = document.getElementById('editorCanvas');
+    if (!canvas || !canvas.contains(event.target)) return;
     if (typeof window.exitFusionEditMode === 'function') {
       window.exitFusionEditMode(true);
     }
