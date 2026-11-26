@@ -1054,36 +1054,15 @@ export function releaseSmartFusion(item = null) {
     ? detachFusionCompanion(fusionGroup)
     : null;
   const restoredVector = keptContour || fusionGroup.data.originalVectorData.clone();
-  const restoredRaster = fusionGroup.data.originalRasterData.clone();
+  const liveRasters = Array.from(fusionGroup.children || []).filter(child => child?.className === "Raster");
+  const liveBackgrounds = Array.from(fusionGroup.children || []).filter(child => child?.data?.ekkoFondoPara);
+  const restoredRaster = liveRasters.length ? null : fusionGroup.data.originalRasterData.clone();
   const originalIsHole = !!(fusionGroup.data.originalIsHole);
-  // Separar sin salto: aplicar a los snapshots originales la matriz actual
-  // del contenedor/máscara. Así se conservan movimiento, escala y rotación
-  // realizadas sobre la fusión completa, además de la relación interna.
-  const curMask = fusionGroup.children?.find(child =>
-    child && (child.clipMask || child.data?.isFusionMask)
-  ) || null;
-  try {
-    // Snapshots are already in project coordinates. Apply only the public
-    // fusion-owner matrix; a mask child matrix would double-apply its local
-    // geometry and is the source of mask/raster divergence after rotate/scale.
-    const currentMatrix = fusionGroup.globalMatrix?.clone?.() || new paper.Matrix();
-    if (currentMatrix && !currentMatrix.isIdentity()) {
-      restoredVector.transform(currentMatrix);
-      restoredRaster.transform(currentMatrix);
-    } else if (curMask && curMask.bounds && restoredVector.bounds) {
-      const delta = curMask.bounds.center.subtract(restoredVector.bounds.center);
-      if (delta.length > 0.01) {
-        restoredVector.translate(delta);
-        restoredRaster.translate(delta);
-      }
-    }
-  } catch(e) {}
-  // Quitar Fusión devuelve las dos piezas tal como llegaron: el vector
-  // conserva su marca de receptor y la imagen sus datos de cliente
-  // (recorte, canvas original, ajustes). Pisar esos datos convertia la
-  // separación en una perdida silenciosa y bloqueaba volver a fusionar.
+  const currentMatrix = fusionGroup.globalMatrix?.clone?.() || new paper.Matrix();
+  if (!currentMatrix.isIdentity()) restoredVector.transform(currentMatrix);
+  if (restoredRaster && !currentMatrix.isIdentity()) restoredRaster.transform(currentMatrix);
+
   const vectorData = { ...(fusionGroup.data.originalVectorData?.data || {}) };
-  const rasterData = { ...(fusionGroup.data.originalRasterData?.data || {}) };
   restoredVector.data = {
     ...vectorData,
     isHole: originalIsHole,
@@ -1092,45 +1071,67 @@ export function releaseSmartFusion(item = null) {
     ownerContainmentKey: fusionGroup.data.ownerContainmentKey || null,
     label: vectorData.label || (originalIsHole ? "Trazado Calado" : "Trazado Vectorial")
   };
-  if (originalIsHole) {
-    // Quitar Fusión restaura el hueco real con representación pública
-    // visible/interactiva; data.isHole sigue gobernando exclusivamente el CSG.
-    applyVisibleHoleStyle(restoredVector, restoredVector);
+  if (originalIsHole) applyVisibleHoleStyle(restoredVector, restoredVector);
+
+  const parentGroup = fusionGroup.parent;
+  const destination = parentGroup?.project
+    ? parentGroup
+    : (paper.project.layers?.find(layer => layer.name === "designLayer") || paper.project.activeLayer);
+  const finalRasters = [];
+  liveBackgrounds.forEach(background => {
+    const worldMatrix = background.globalMatrix.clone();
+    background.remove();
+    destination.addChild(background);
+    background.matrix = destination.globalMatrix.inverted().concatenate(worldMatrix);
+    if (window.currentMockup) background.insertBelow(window.currentMockup);
+  });
+  if (liveRasters.length) {
+    liveRasters.forEach(raster => {
+      const worldMatrix = raster.globalMatrix.clone();
+      const rasterData = { ...(raster.data || {}) };
+      raster.remove();
+      destination.addChild(raster);
+      raster.matrix = destination.globalMatrix.inverted().concatenate(worldMatrix);
+      raster.data = { ...rasterData, label: rasterData.label || "Imagen" };
+      try { delete raster.selected; } catch (_) {}
+      raster.locked = false;
+      raster.clipMask = false;
+      ensureContainedDesignItem(raster);
+      finalRasters.push(raster);
+    });
+  } else {
+    const rasterData = { ...(fusionGroup.data.originalRasterData?.data || {}) };
+    restoredRaster.data = { ...rasterData, label: rasterData.label || "Imagen" };
+    if (!restoredRaster.parent) destination.addChild(restoredRaster);
+    ensureContainedDesignItem(restoredRaster);
+    finalRasters.push(restoredRaster);
   }
-  restoredRaster.data = { ...rasterData, label: rasterData.label || "Imagen" };
 
   let finalVector = ensureContainedDesignItem(restoredVector);
-  let finalRaster = ensureContainedDesignItem(restoredRaster);
   if (finalVector.parent === null) paper.project.activeLayer.addChild(finalVector);
-  if (finalRaster.parent === null) paper.project.activeLayer.addChild(finalRaster);
-  // La imagen SIEMPRE queda DEBAJO del vector: el vector suele ser mas chico
-  // y el cliente lo busca arriba; la imagen (casi siempre mas grande) lo
-  // taparia. El vector conserva especie (hueco/solido) y transformaciones.
   try {
-    if (finalVector?.parent && finalVector.parent === finalRaster?.parent) {
-      finalVector.insertAbove(finalRaster);
-    }
+    const topRaster = finalRasters[finalRasters.length - 1];
+    if (topRaster && finalVector.parent === topRaster.parent) finalVector.insertAbove(topRaster);
   } catch (_) {}
   if (window.currentMockup) {
-    finalRaster.insertBelow(window.currentMockup);
+    finalRasters.forEach(raster => raster.insertBelow(window.currentMockup));
     finalVector.insertBelow(window.currentMockup);
   }
   if (typeof window.syncGeometryToGeomBase === 'function') {
     window.syncGeometryToGeomBase(finalVector);
-    window.syncGeometryToGeomBase(finalRaster);
+    finalRasters.forEach(raster => window.syncGeometryToGeomBase(raster));
   }
-  const parentGroup = fusionGroup.parent;
   fusionGroup.remove();
   cleanEmptyClipGroup(parentGroup);
   if (typeof window.deselectItem === 'function') window.deselectItem();
-  if (typeof window.selectItem === 'function') window.selectItem(finalRaster);
+  if (typeof window.selectItem === 'function') window.selectItem(finalRasters[0]);
   if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
   if (typeof window.commitHistoryTransaction === 'function') window.commitHistoryTransaction("release-fusion");
   if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === 'function') {
     window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("release-fusion");
   }
   paper.view.update();
-  return [finalVector, finalRaster];
+  return [finalVector, ...finalRasters];
   } catch (e) {
     if (typeof window.cancelHistoryTransaction === 'function') window.cancelHistoryTransaction("release-fusion-error");
     console.error("[RELEASE FUSION ERROR]", e);
